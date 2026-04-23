@@ -10,6 +10,7 @@ use Illuminate\Support\Arr;
 use Jonaspauleta\PrismMoonshot\Concerns\MapsFinishReason;
 use Jonaspauleta\PrismMoonshot\Concerns\ValidatesResponses;
 use Jonaspauleta\PrismMoonshot\Maps\MessageMap;
+use Jonaspauleta\PrismMoonshot\Maps\ThinkingMap;
 use Jonaspauleta\PrismMoonshot\Maps\ToolCallMap;
 use Jonaspauleta\PrismMoonshot\Maps\ToolChoiceMap;
 use Jonaspauleta\PrismMoonshot\Maps\ToolMap;
@@ -113,6 +114,7 @@ final class Text
                 'top_p' => $request->topP(),
                 'tools' => ToolMap::map(array_values($request->tools())) ?: null,
                 'tool_choice' => ToolChoiceMap::map($request->toolChoice()),
+                'thinking' => ThinkingMap::map($request->providerOptions('thinking')),
             ])),
         );
 

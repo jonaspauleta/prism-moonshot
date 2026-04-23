@@ -138,8 +138,32 @@ Other supported model identifiers from Moonshot's docs:
 - ✅ Structured output (`structured()`) — JSON mode via `response_format: json_object`
 - ✅ Tool / function calling
 - ✅ Vision input (image URL or base64) via OpenAI-compatible content array
+- ✅ **Thinking mode** — opt in via `withProviderOptions(['thinking' => true])` (sends `thinking: {type: enabled}`); for `kimi-k2.6` multi-turn, pass `['type' => 'enabled', 'keep' => 'all']` to preserve reasoning across turns
 - ❌ Embeddings — Moonshot has no public embeddings endpoint
-- ❌ File uploads / context caching — not exposed in v1
+- ❌ File uploads (`POST /v1/files`) and `ms://<file_id>` references — not exposed in v0.x
+
+## Enabling thinking
+
+```php
+// Standalone Prism
+Prism::text()
+    ->using('moonshot', 'kimi-k2.6')
+    ->withProviderOptions(['thinking' => ['type' => 'enabled', 'keep' => 'all']])
+    ->withPrompt('Plan a Spa-Francorchamps cold-tyre out-lap.')
+    ->asText();
+
+// Laravel AI agent
+#[Provider('moonshot')]
+final class MyAgent implements Agent, HasProviderOptions
+{
+    public function providerOptions(): array
+    {
+        return ['thinking' => ['type' => 'enabled', 'keep' => 'all']];
+    }
+}
+```
+
+When thinking is enabled, the model returns `reasoning_content` deltas in the SSE stream — Prism surfaces them as `ThinkingStartEvent` / `ThinkingEvent` / `ThinkingCompleteEvent`.
 
 ## How it bridges to the Laravel AI SDK
 

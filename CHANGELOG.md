@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-24
+
+### Added
+
+- **Thinking mode** support via `withProviderOptions(['thinking' => ...])`. Accepts `true` (shorthand for `['type' => 'enabled']`), or the full Moonshot shape `['type' => 'enabled'|'disabled', 'keep' => 'all']`. The `keep: all` flag is `kimi-k2.6`-only and preserves reasoning across multi-turn conversations.
+- New `Maps\ThinkingMap` value mapper with input validation for `type` and `keep`.
+- Tests covering all thinking input forms + invalid-input rejection paths.
+- Documented Kimi thinking schema in README with both Prism standalone and Laravel AI agent examples.
+
+[0.2.0]: https://github.com/jonaspauleta/prism-moonshot/releases/tag/v0.2.0
+
 ## [0.1.0] - 2026-04-23
 
 ### Added
@@ -19,5 +30,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pest 4 + PHPStan level max + Pint + Rector quality pipeline.
 - GitHub Actions workflow.
 
-[Unreleased]: https://github.com/jonaspauleta/prism-moonshot/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jonaspauleta/prism-moonshot/compare/v0.2.0...HEAD
 [0.1.0]: https://github.com/jonaspauleta/prism-moonshot/releases/tag/v0.1.0

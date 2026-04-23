@@ -11,6 +11,7 @@ use Jonaspauleta\PrismMoonshot\Concerns\MapsFinishReason;
 use Jonaspauleta\PrismMoonshot\Concerns\ValidatesResponses;
 use Jonaspauleta\PrismMoonshot\Maps\FinishReasonMap;
 use Jonaspauleta\PrismMoonshot\Maps\MessageMap;
+use Jonaspauleta\PrismMoonshot\Maps\ThinkingMap;
 use Prism\Prism\Structured\Request;
 use Prism\Prism\Structured\Response as StructuredResponse;
 use Prism\Prism\Structured\ResponseBuilder;
@@ -62,6 +63,7 @@ final class Structured
             ], Arr::whereNotNull([
                 'temperature' => $request->temperature(),
                 'top_p' => $request->topP(),
+                'thinking' => ThinkingMap::map($request->providerOptions('thinking')),
             ])),
         );
 
