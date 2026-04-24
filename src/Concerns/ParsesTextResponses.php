@@ -99,7 +99,7 @@ trait ParsesTextResponses
         $usage = $this->extractUsage($data);
         $finishReason = $this->extractFinishReason($choice);
 
-        $mappedToolCalls = array_map(fn (array $toolCall): \Laravel\Ai\Responses\Data\ToolCall => new ToolCall(
+        $mappedToolCalls = array_map(fn (array $toolCall): ToolCall => new ToolCall(
             $toolCall['id'] ?? '',
             $toolCall['function']['name'] ?? '',
             json_decode($toolCall['function']['arguments'] ?? '{}', true) ?? [],
@@ -357,7 +357,7 @@ trait ParsesTextResponses
     protected function combineUsage(Collection $steps): Usage
     {
         return $steps->reduce(
-            fn (Usage $carry, Step $step): \Laravel\Ai\Responses\Data\Usage => $carry->add($step->usage),
+            fn (Usage $carry, Step $step): Usage => $carry->add($step->usage),
             new Usage(0, 0)
         );
     }
