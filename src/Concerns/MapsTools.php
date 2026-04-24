@@ -14,6 +14,9 @@ trait MapsTools
 {
     /**
      * Map the given tools to Chat Completions function definitions.
+     *
+     * @param  array<int, mixed>  $tools
+     * @return array<int, array<string, mixed>>
      */
     protected function mapTools(array $tools): array
     {
@@ -34,6 +37,8 @@ trait MapsTools
 
     /**
      * Map a regular tool to a Chat Completions function definition.
+     *
+     * @return array<string, mixed>
      */
     protected function mapTool(Tool $tool): array
     {

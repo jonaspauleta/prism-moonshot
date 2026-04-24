@@ -12,6 +12,7 @@ use Laravel\Ai\Gateway\Concerns\HandlesFailoverErrors;
 use Laravel\Ai\Gateway\Concerns\InvokesTools;
 use Laravel\Ai\Gateway\Concerns\ParsesServerSentEvents;
 use Laravel\Ai\Gateway\TextGenerationOptions;
+use Laravel\Ai\Providers\Provider;
 use Laravel\Ai\Responses\TextResponse;
 
 final class MoonshotGateway implements TextGateway
@@ -27,6 +28,11 @@ final class MoonshotGateway implements TextGateway
     use InvokesTools;
     use ParsesServerSentEvents;
 
+    // why: $events mirrors Laravel\Ai\Gateway\DeepSeek\DeepSeekGateway's
+    // protected Dispatcher — reserved for future event emission. PHPStan flags it
+    // because nothing in this package reads it yet; keeping the parity with the
+    // SDK's own gateways is more valuable than deleting it.
+    /** @phpstan-ignore property.onlyWritten */
     public function __construct(private Dispatcher $events)
     {
         $this->initializeToolCallbacks();
@@ -34,6 +40,10 @@ final class MoonshotGateway implements TextGateway
 
     /**
      * {@inheritdoc}
+     *
+     * @param  array<int, mixed>  $messages
+     * @param  array<int, mixed>  $tools
+     * @param  array<string, mixed>|null  $schema
      */
     public function generateText(
         TextProvider $provider,
@@ -45,6 +55,11 @@ final class MoonshotGateway implements TextGateway
         ?TextGenerationOptions $options = null,
         ?int $timeout = null,
     ): TextResponse {
+        // why: the traits type parameters as the concrete Provider base class (matching
+        // how Laravel's own DeepSeek/OpenAi gateways are written), but the public
+        // contract is TextProvider. Every real TextProvider extends Provider.
+        assert($provider instanceof Provider);
+
         $body = $this->buildTextRequestBody(
             $provider,
             $model,
@@ -60,6 +75,7 @@ final class MoonshotGateway implements TextGateway
             fn () => $this->client($provider, $timeout)->post('chat/completions', $body),
         );
 
+        /** @var array<string, mixed> $data */
         $data = $response->json();
 
         $this->validateTextResponse($data);
@@ -79,6 +95,10 @@ final class MoonshotGateway implements TextGateway
 
     /**
      * {@inheritdoc}
+     *
+     * @param  array<int, mixed>  $messages
+     * @param  array<int, mixed>  $tools
+     * @param  array<string, mixed>|null  $schema
      */
     public function streamText(
         string $invocationId,
@@ -91,6 +111,10 @@ final class MoonshotGateway implements TextGateway
         ?TextGenerationOptions $options = null,
         ?int $timeout = null,
     ): Generator {
+        // why: see generateText() — narrow the public contract to the concrete base
+        // class so the traits (which mirror Laravel's own gateway traits) type-check.
+        assert($provider instanceof Provider);
+
         $body = $this->buildTextRequestBody(
             $provider,
             $model,
@@ -118,7 +142,7 @@ final class MoonshotGateway implements TextGateway
             $tools,
             $schema,
             $options,
-            $response->getBody(),
+            $response->toPsrResponse()->getBody(),
             $instructions,
             $messages,
             0,

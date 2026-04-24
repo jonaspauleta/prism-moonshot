@@ -9,6 +9,7 @@ use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Gateway\TextGenerationOptions;
 use Laravel\Ai\Messages\AssistantMessage;
+use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Messages\ToolResultMessage;
 use Laravel\Ai\Providers\Provider;
 use Laravel\Ai\Responses\Data\FinishReason;
@@ -25,21 +26,31 @@ trait ParsesTextResponses
     /**
      * Validate the Moonshot response data.
      *
+     * @param  array<string, mixed>  $data
+     *
      * @throws AiException
      */
     protected function validateTextResponse(array $data): void
     {
         if (! $data || isset($data['error'])) {
+            /** @var array{type?: mixed, message?: mixed} $error */
+            $error = is_array($data['error'] ?? null) ? $data['error'] : [];
+
             throw new AiException(sprintf(
                 'Moonshot Error: [%s] %s',
-                $data['error']['type'] ?? 'unknown',
-                $data['error']['message'] ?? 'Unknown Moonshot error.',
+                is_string($error['type'] ?? null) ? $error['type'] : 'unknown',
+                is_string($error['message'] ?? null) ? $error['message'] : 'Unknown Moonshot error.',
             ));
         }
     }
 
     /**
      * Parse the Moonshot response data into a TextResponse.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<int, mixed>  $tools
+     * @param  array<string, mixed>|null  $schema
+     * @param  array<int, mixed>  $originalMessages
      */
     protected function parseTextResponse(
         array $data,
@@ -74,6 +85,13 @@ trait ParsesTextResponses
      * Note: deepseek-reasoner responses include a `reasoning_content` field on
      * each choice's message; it's intentionally ignored here — we only expose
      * the final `content` text.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<int, mixed>  $tools
+     * @param  array<string, mixed>|null  $schema
+     * @param  Collection<int, Step>  $steps
+     * @param  Collection<int, Message>  $messages
+     * @param  array<int, mixed>  $originalMessages
      */
     protected function processResponse(
         array $data,
@@ -90,21 +108,33 @@ trait ParsesTextResponses
         ?TextGenerationOptions $options = null,
         ?int $timeout = null,
     ): TextResponse {
-        $choice = $data['choices'][0] ?? [];
-        $message = $choice['message'] ?? [];
-        $model = $data['model'] ?? '';
+        /** @var array<int, mixed> $choices */
+        $choices = is_array($data['choices'] ?? null) ? $data['choices'] : [];
+        /** @var array<string, mixed> $choice */
+        $choice = is_array($choices[0] ?? null) ? $choices[0] : [];
+        /** @var array<string, mixed> $message */
+        $message = is_array($choice['message'] ?? null) ? $choice['message'] : [];
+        $model = is_string($data['model'] ?? null) ? $data['model'] : '';
 
-        $text = $message['content'] ?? '';
-        $rawToolCalls = $message['tool_calls'] ?? [];
+        $text = is_string($message['content'] ?? null) ? $message['content'] : '';
+        /** @var array<int, array<string, mixed>> $rawToolCalls */
+        $rawToolCalls = is_array($message['tool_calls'] ?? null) ? $message['tool_calls'] : [];
         $usage = $this->extractUsage($data);
         $finishReason = $this->extractFinishReason($choice);
 
-        $mappedToolCalls = array_map(fn (array $toolCall): ToolCall => new ToolCall(
-            $toolCall['id'] ?? '',
-            $toolCall['function']['name'] ?? '',
-            json_decode($toolCall['function']['arguments'] ?? '{}', true) ?? [],
-            $toolCall['id'] ?? null,
-        ), $rawToolCalls);
+        $mappedToolCalls = array_values(array_map(function (array $toolCall): ToolCall {
+            /** @var array<string, mixed> $function */
+            $function = is_array($toolCall['function'] ?? null) ? $toolCall['function'] : [];
+            $arguments = is_string($function['arguments'] ?? null) ? $function['arguments'] : '{}';
+            $decoded = json_decode($arguments, true);
+
+            return new ToolCall(
+                is_string($toolCall['id'] ?? null) ? $toolCall['id'] : '',
+                is_string($function['name'] ?? null) ? $function['name'] : '',
+                is_array($decoded) ? $decoded : [],
+                is_string($toolCall['id'] ?? null) ? $toolCall['id'] : null,
+            );
+        }, $rawToolCalls));
 
         $step = new Step(
             $text,
@@ -124,7 +154,10 @@ trait ParsesTextResponses
         if ($finishReason === FinishReason::ToolCalls &&
             filled($mappedToolCalls) &&
             $steps->count() < ($maxSteps ?? round(count($tools) * 1.5))) {
-            $toolResults = $this->executeToolCalls($mappedToolCalls, $tools);
+            /** @var array<int, Tool> $filteredTools */
+            $filteredTools = array_values(array_filter($tools, static fn ($t): bool => $t instanceof Tool));
+
+            $toolResults = $this->executeToolCalls($mappedToolCalls, $filteredTools);
 
             $steps->pop();
 
@@ -162,7 +195,9 @@ trait ParsesTextResponses
         $allToolResults = $steps->flatMap(fn (Step $s): array => $s->toolResults);
 
         if ($structured) {
-            $structuredData = json_decode($text, true) ?? [];
+            $decoded = json_decode($text, true);
+            /** @var array<string, mixed> $structuredData */
+            $structuredData = is_array($decoded) ? $decoded : [];
 
             return new StructuredTextResponse(
                 $structuredData,
@@ -185,12 +220,13 @@ trait ParsesTextResponses
     /**
      * Execute tool calls and return tool results.
      *
-     * @param  array<ToolCall>  $toolCalls
-     * @param  array<Tool>  $tools
-     * @return array<ToolResult>
+     * @param  array<int, ToolCall>  $toolCalls
+     * @param  array<int, Tool>  $tools
+     * @return array<int, ToolResult>
      */
     protected function executeToolCalls(array $toolCalls, array $tools): array
     {
+        /** @var array<int, ToolResult> $results */
         $results = [];
 
         foreach ($toolCalls as $toolCall) {
@@ -216,6 +252,12 @@ trait ParsesTextResponses
 
     /**
      * Continue the conversation with tool results by making a follow-up request.
+     *
+     * @param  array<int, mixed>  $tools
+     * @param  array<string, mixed>|null  $schema
+     * @param  Collection<int, Step>  $steps
+     * @param  Collection<int, Message>  $messages
+     * @param  array<int, mixed>  $originalMessages
      */
     protected function continueWithToolResults(
         string $model,
@@ -239,6 +281,7 @@ trait ParsesTextResponses
 
         foreach ($messages as $msg) {
             if ($msg instanceof AssistantMessage) {
+                /** @var array<string, mixed> $mapped */
                 $mapped = ['role' => 'assistant'];
 
                 if (filled($msg->content)) {
@@ -246,14 +289,19 @@ trait ParsesTextResponses
                 }
 
                 if ($msg->toolCalls->isNotEmpty()) {
-                    $mapped['tool_calls'] = $msg->toolCalls->map(
-                        fn (ToolCall $toolCall) => $this->serializeToolCallToChat($toolCall)
+                    /** @var Collection<int, ToolCall> $toolCalls */
+                    $toolCalls = $msg->toolCalls;
+                    $mapped['tool_calls'] = $toolCalls->map(
+                        fn (ToolCall $toolCall): array => $this->serializeToolCallToChat($toolCall)
                     )->all();
                 }
 
                 $chatMessages[] = $mapped;
             } elseif ($msg instanceof ToolResultMessage) {
-                foreach ($msg->toolResults as $toolResult) {
+                /** @var Collection<int, ToolResult> $toolResults */
+                $toolResults = $msg->toolResults;
+
+                foreach ($toolResults as $toolResult) {
                     $chatMessages[] = [
                         'role' => 'tool',
                         'tool_call_id' => $toolResult->resultId ?? $toolResult->id,
@@ -300,6 +348,7 @@ trait ParsesTextResponses
             fn () => $this->client($provider, $timeout)->post('chat/completions', $body),
         );
 
+        /** @var array<string, mixed> $data */
         $data = $response->json();
 
         $this->validateTextResponse($data);
@@ -323,22 +372,28 @@ trait ParsesTextResponses
 
     /**
      * Extract usage data from the response.
+     *
+     * @param  array<string, mixed>  $data
      */
     protected function extractUsage(array $data): Usage
     {
-        $usage = $data['usage'] ?? [];
-        $details = $usage['completion_tokens_details'] ?? [];
+        /** @var array<string, mixed> $usage */
+        $usage = is_array($data['usage'] ?? null) ? $data['usage'] : [];
+        /** @var array<string, mixed> $details */
+        $details = is_array($usage['completion_tokens_details'] ?? null) ? $usage['completion_tokens_details'] : [];
 
         return new Usage(
-            promptTokens: $usage['prompt_tokens'] ?? 0,
-            completionTokens: $usage['completion_tokens'] ?? 0,
-            cacheReadInputTokens: $usage['prompt_cache_hit_tokens'] ?? 0,
-            reasoningTokens: $details['reasoning_tokens'] ?? 0,
+            promptTokens: is_int($usage['prompt_tokens'] ?? null) ? $usage['prompt_tokens'] : 0,
+            completionTokens: is_int($usage['completion_tokens'] ?? null) ? $usage['completion_tokens'] : 0,
+            cacheReadInputTokens: is_int($usage['prompt_cache_hit_tokens'] ?? null) ? $usage['prompt_cache_hit_tokens'] : 0,
+            reasoningTokens: is_int($details['reasoning_tokens'] ?? null) ? $details['reasoning_tokens'] : 0,
         );
     }
 
     /**
      * Extract and map the finish reason from the response.
+     *
+     * @param  array<string, mixed>  $choice
      */
     protected function extractFinishReason(array $choice): FinishReason
     {
@@ -353,12 +408,17 @@ trait ParsesTextResponses
 
     /**
      * Combine usage across all steps.
+     *
+     * @param  Collection<int, Step>  $steps
      */
     protected function combineUsage(Collection $steps): Usage
     {
-        return $steps->reduce(
+        /** @var Usage $result */
+        $result = $steps->reduce(
             fn (Usage $carry, Step $step): Usage => $carry->add($step->usage),
             new Usage(0, 0)
         );
+
+        return $result;
     }
 }

@@ -15,8 +15,10 @@ trait CreatesMoonshotClient
      */
     protected function client(Provider $provider, ?int $timeout = null): PendingRequest
     {
+        $key = $provider->providerCredentials()['key'] ?? '';
+
         return Http::baseUrl($this->baseUrl($provider))
-            ->withToken($provider->providerCredentials()['key'])
+            ->withToken(is_string($key) ? $key : '')
             ->timeout($timeout ?? 60)
             ->throw();
     }
@@ -26,6 +28,8 @@ trait CreatesMoonshotClient
      */
     protected function baseUrl(Provider $provider): string
     {
-        return rtrim($provider->additionalConfiguration()['url'] ?? 'https://api.moonshot.ai/v1', '/');
+        $url = $provider->additionalConfiguration()['url'] ?? 'https://api.moonshot.ai/v1';
+
+        return rtrim(is_string($url) ? $url : 'https://api.moonshot.ai/v1', '/');
     }
 }

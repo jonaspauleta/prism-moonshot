@@ -19,6 +19,9 @@ beforeEach(function (): void {
     Http::preventStrayRequests();
 });
 
+/**
+ * @param  array<int, array<string, mixed>>  $chunks
+ */
 function sseFromChunks(array $chunks): string
 {
     $lines = [];
@@ -47,7 +50,6 @@ it('streams text deltas from a chat completions SSE response', function (): void
 
     $provider = resolve(AiManager::class)->textProvider('moonshot');
 
-    $events = [];
     $generator = $provider->textGateway()->streamText(
         'inv-1',
         $provider,
@@ -56,11 +58,10 @@ it('streams text deltas from a chat completions SSE response', function (): void
         messages: [new Message('user', 'Hi')],
     );
 
-    foreach ($generator as $event) {
-        $events[] = $event;
-    }
+    /** @var array<int, StreamEvent> $events */
+    $events = iterator_to_array($generator, false);
 
-    $classes = array_map(fn (StreamEvent $e): string => $e::class, $events);
+    $classes = array_map(static fn (StreamEvent $e): string => $e::class, $events);
 
     expect($classes)->toContain(StreamStart::class)
         ->and($classes)->toContain(TextStart::class)
@@ -68,8 +69,9 @@ it('streams text deltas from a chat completions SSE response', function (): void
         ->and($classes)->toContain(TextEnd::class)
         ->and($classes)->toContain(StreamEnd::class);
 
-    $deltas = array_values(array_filter($events, fn ($e): bool => $e instanceof TextDelta));
-    $text = implode('', array_map(fn (TextDelta $e): string => $e->delta, $deltas));
+    /** @var array<int, TextDelta> $deltas */
+    $deltas = array_values(array_filter($events, static fn (StreamEvent $e): bool => $e instanceof TextDelta));
+    $text = implode('', array_map(static fn (TextDelta $e): string => $e->delta, $deltas));
 
     expect($text)->toBe('Hello world');
 });
@@ -89,12 +91,12 @@ it('emits reasoning events when the model returns reasoning_content deltas', fun
 
     $provider = resolve(AiManager::class)->textProvider('moonshot');
 
-    $events = [];
-    foreach ($provider->textGateway()->streamText('inv-2', $provider, 'kimi-k2-thinking', null, [new Message('user', 'Hi')]) as $event) {
-        $events[] = $event;
-    }
+    $generator = $provider->textGateway()->streamText('inv-2', $provider, 'kimi-k2-thinking', null, [new Message('user', 'Hi')]);
 
-    $classes = array_map(fn (StreamEvent $e): string => $e::class, $events);
+    /** @var array<int, StreamEvent> $events */
+    $events = iterator_to_array($generator, false);
+
+    $classes = array_map(static fn (StreamEvent $e): string => $e::class, $events);
     expect($classes)->toContain(ReasoningStart::class)
         ->and($classes)->toContain(ReasoningDelta::class)
         ->and($classes)->toContain(ReasoningEnd::class);
@@ -102,11 +104,15 @@ it('emits reasoning events when the model returns reasoning_content deltas', fun
     // ReasoningEnd must come before TextStart.
     $reasoningEndIndex = array_search(ReasoningEnd::class, $classes, true);
     $textStartIndex = array_search(TextStart::class, $classes, true);
-    expect($reasoningEndIndex)->toBeLessThan($textStartIndex);
+    expect($reasoningEndIndex)->not->toBeFalse();
+    expect($textStartIndex)->not->toBeFalse();
+    expect((int) $reasoningEndIndex)->toBeLessThan((int) $textStartIndex);
 
+    /** @var array<int, ReasoningDelta> $reasoningDeltas */
+    $reasoningDeltas = array_values(array_filter($events, static fn (StreamEvent $e): bool => $e instanceof ReasoningDelta));
     $reasoning = implode('', array_map(
-        fn (ReasoningDelta $e): string => $e->delta,
-        array_filter($events, fn ($e): bool => $e instanceof ReasoningDelta),
+        static fn (ReasoningDelta $e): string => $e->delta,
+        $reasoningDeltas,
     ));
     expect($reasoning)->toBe('let me think... carefully');
 });

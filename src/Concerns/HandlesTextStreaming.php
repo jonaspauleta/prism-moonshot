@@ -22,11 +22,18 @@ use Laravel\Ai\Streaming\Events\TextEnd;
 use Laravel\Ai\Streaming\Events\TextStart;
 use Laravel\Ai\Streaming\Events\ToolCall as ToolCallEvent;
 use Laravel\Ai\Streaming\Events\ToolResult as ToolResultEvent;
+use Psr\Http\Message\StreamInterface;
 
 trait HandlesTextStreaming
 {
     /**
      * Process a Chat Completions streaming response and yield Laravel stream events.
+     *
+     * @param  array<int, mixed>  $tools
+     * @param  array<string, mixed>|null  $schema
+     * @param  StreamInterface  $streamBody
+     * @param  array<int, mixed>  $originalMessages
+     * @param  array<int, array<string, mixed>>  $priorChatMessages
      */
     protected function processTextStream(
         string $invocationId,
@@ -50,18 +57,25 @@ trait HandlesTextStreaming
         $textStartEmitted = false;
         $reasoningStartEmitted = false;
         $reasoningEndEmitted = false;
-        $reasoningId = null;
+        $reasoningId = '';
         $currentText = '';
+        /** @var array<int|string, array{id: string, name: string, arguments: string}> $pendingToolCalls */
         $pendingToolCalls = [];
         $usage = null;
         $finishReason = null;
 
-        foreach ($this->parseServerSentEvents($streamBody) as $data) {
+        foreach ($this->parseServerSentEvents($streamBody) as $event) {
+            /** @var array<string, mixed> $data */
+            $data = is_array($event) ? $event : [];
+
             if (isset($data['error'])) {
+                /** @var array<string, mixed> $err */
+                $err = is_array($data['error']) ? $data['error'] : [];
+
                 yield new Error(
                     $this->generateEventId(),
-                    $data['error']['code'] ?? 'unknown_error',
-                    $data['error']['message'] ?? 'Unknown error',
+                    is_string($err['code'] ?? null) ? $err['code'] : 'unknown_error',
+                    is_string($err['message'] ?? null) ? $err['message'] : 'Unknown error',
                     false,
                     time(),
                 )->withInvocationId($invocationId);
@@ -69,7 +83,12 @@ trait HandlesTextStreaming
                 return;
             }
 
-            $choice = $data['choices'][0] ?? null;
+            /** @var array<string, mixed> $choices0 */
+            $choices0 = [];
+            if (isset($data['choices']) && is_array($data['choices']) && isset($data['choices'][0]) && is_array($data['choices'][0])) {
+                $choices0 = $data['choices'][0];
+            }
+            $choice = $choices0 !== [] ? $choices0 : null;
 
             if (! $choice) {
                 if (isset($data['usage'])) {
@@ -79,7 +98,8 @@ trait HandlesTextStreaming
                 continue;
             }
 
-            $delta = $choice['delta'] ?? [];
+            /** @var array<string, mixed> $delta */
+            $delta = is_array($choice['delta'] ?? null) ? $choice['delta'] : [];
 
             if (! $streamStartEmitted) {
                 $streamStartEmitted = true;
@@ -87,12 +107,12 @@ trait HandlesTextStreaming
                 yield new StreamStart(
                     $this->generateEventId(),
                     $provider->name(),
-                    $data['model'] ?? $model,
+                    is_string($data['model'] ?? null) ? $data['model'] : $model,
                     time(),
                 )->withInvocationId($invocationId);
             }
 
-            if (isset($delta['reasoning_content']) && $delta['reasoning_content'] !== '') {
+            if (isset($delta['reasoning_content']) && $delta['reasoning_content'] !== '' && is_string($delta['reasoning_content'])) {
                 if (! $reasoningStartEmitted) {
                     $reasoningStartEmitted = true;
                     $reasoningId = $this->generateEventId();
@@ -112,7 +132,7 @@ trait HandlesTextStreaming
                 )->withInvocationId($invocationId);
             }
 
-            if (isset($delta['content']) && $delta['content'] !== '') {
+            if (isset($delta['content']) && $delta['content'] !== '' && is_string($delta['content'])) {
                 if ($reasoningStartEmitted && ! $reasoningEndEmitted) {
                     $reasoningEndEmitted = true;
 
@@ -143,25 +163,35 @@ trait HandlesTextStreaming
                 )->withInvocationId($invocationId);
             }
 
-            if (isset($delta['tool_calls'])) {
+            if (isset($delta['tool_calls']) && is_array($delta['tool_calls'])) {
                 foreach ($delta['tool_calls'] as $tcDelta) {
-                    $idx = $tcDelta['index'];
+                    if (! is_array($tcDelta)) {
+                        continue;
+                    }
+
+                    $idx = $tcDelta['index'] ?? null;
+                    if (! is_int($idx) && ! is_string($idx)) {
+                        continue;
+                    }
+
+                    /** @var array<string, mixed> $function */
+                    $function = is_array($tcDelta['function'] ?? null) ? $tcDelta['function'] : [];
 
                     if (! isset($pendingToolCalls[$idx])) {
                         $pendingToolCalls[$idx] = [
-                            'id' => $tcDelta['id'] ?? '',
-                            'name' => $tcDelta['function']['name'] ?? '',
+                            'id' => is_string($tcDelta['id'] ?? null) ? $tcDelta['id'] : '',
+                            'name' => is_string($function['name'] ?? null) ? $function['name'] : '',
                             'arguments' => '',
                         ];
                     }
 
-                    if (isset($tcDelta['function']['arguments'])) {
-                        $pendingToolCalls[$idx]['arguments'] .= $tcDelta['function']['arguments'];
+                    if (isset($function['arguments']) && is_string($function['arguments'])) {
+                        $pendingToolCalls[$idx]['arguments'] .= $function['arguments'];
                     }
                 }
             }
 
-            if (isset($choice['finish_reason']) && $choice['finish_reason'] !== null) {
+            if (isset($choice['finish_reason']) && is_string($choice['finish_reason'])) {
                 $finishReason = $choice['finish_reason'];
             }
 
@@ -229,6 +259,12 @@ trait HandlesTextStreaming
 
     /**
      * Handle tool calls detected during streaming.
+     *
+     * @param  array<int, mixed>  $tools
+     * @param  array<string, mixed>|null  $schema
+     * @param  array<int, ToolCall>  $mappedToolCalls
+     * @param  array<int, mixed>  $originalMessages
+     * @param  array<int, array<string, mixed>>  $priorChatMessages
      */
     protected function handleStreamingToolCalls(
         string $invocationId,
@@ -246,6 +282,7 @@ trait HandlesTextStreaming
         array $priorChatMessages,
         ?int $timeout = null,
     ): Generator {
+        /** @var array<int, ToolResult> $toolResults */
         $toolResults = [];
 
         foreach ($mappedToolCalls as $toolCall) {
@@ -277,6 +314,7 @@ trait HandlesTextStreaming
         }
 
         if ($depth + 1 < ($maxSteps ?? round(count($tools) * 1.5))) {
+            /** @var array<string, mixed> $assistantMsg */
             $assistantMsg = ['role' => 'assistant'];
 
             if (filled($currentText)) {
@@ -284,9 +322,10 @@ trait HandlesTextStreaming
             }
 
             $assistantMsg['tool_calls'] = array_map(
-                fn (ToolCall $toolCall) => $this->serializeToolCallToChat($toolCall), $mappedToolCalls
+                fn (ToolCall $toolCall): array => $this->serializeToolCallToChat($toolCall), $mappedToolCalls
             );
 
+            /** @var array<int, array<string, mixed>> $toolResultMessages */
             $toolResultMessages = [];
 
             foreach ($toolResults as $toolResult) {
@@ -355,7 +394,7 @@ trait HandlesTextStreaming
                 $tools,
                 $schema,
                 $options,
-                $response->getBody(),
+                $response->toPsrResponse()->getBody(),
                 $instructions,
                 $originalMessages,
                 $depth + 1,
@@ -376,16 +415,21 @@ trait HandlesTextStreaming
     /**
      * Map raw streaming tool call data to ToolCall DTOs.
      *
-     * @return array<ToolCall>
+     * @param  array<int|string, array{id: string, name: string, arguments: string}>  $toolCalls
+     * @return array<int, ToolCall>
      */
     protected function mapStreamToolCalls(array $toolCalls): array
     {
-        return array_map(fn (array $toolCall): ToolCall => new ToolCall(
-            $toolCall['id'] ?? '',
-            $toolCall['name'] ?? '',
-            json_decode($toolCall['arguments'] ?? '{}', true) ?? [],
-            $toolCall['id'] ?? null,
-        ), array_values($toolCalls));
+        return array_values(array_map(function (array $toolCall): ToolCall {
+            $decoded = json_decode($toolCall['arguments'], true);
+
+            return new ToolCall(
+                $toolCall['id'],
+                $toolCall['name'],
+                is_array($decoded) ? $decoded : [],
+                $toolCall['id'] !== '' ? $toolCall['id'] : null,
+            );
+        }, $toolCalls));
     }
 
     /**

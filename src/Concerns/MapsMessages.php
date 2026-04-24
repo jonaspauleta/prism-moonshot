@@ -4,20 +4,26 @@ declare(strict_types=1);
 
 namespace Jonaspauleta\LaravelAiMoonshot\Concerns;
 
+use Illuminate\Support\Collection;
 use Laravel\Ai\Messages\AssistantMessage;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Messages\MessageRole;
 use Laravel\Ai\Messages\ToolResultMessage;
 use Laravel\Ai\Messages\UserMessage;
 use Laravel\Ai\Responses\Data\ToolCall;
+use Laravel\Ai\Responses\Data\ToolResult;
 
 trait MapsMessages
 {
     /**
      * Map the given Laravel messages to Chat Completions messages format.
+     *
+     * @param  array<int, mixed>  $messages
+     * @return array<int, array<string, mixed>>
      */
     protected function mapMessagesToChat(array $messages, ?string $instructions = null): array
     {
+        /** @var array<int, array<string, mixed>> $chatMessages */
         $chatMessages = [];
 
         if (filled($instructions)) {
@@ -42,6 +48,8 @@ trait MapsMessages
 
     /**
      * Map a user message to Chat Completions format.
+     *
+     * @param  array<int, array<string, mixed>>  $chatMessages
      */
     protected function mapUserMessage(UserMessage|Message $message, array &$chatMessages): void
     {
@@ -65,9 +73,12 @@ trait MapsMessages
 
     /**
      * Map an assistant message to Chat Completions format.
+     *
+     * @param  array<int, array<string, mixed>>  $chatMessages
      */
     protected function mapAssistantMessage(AssistantMessage|Message $message, array &$chatMessages): void
     {
+        /** @var array<string, mixed> $msg */
         $msg = ['role' => 'assistant'];
 
         if (filled($message->content)) {
@@ -75,8 +86,10 @@ trait MapsMessages
         }
 
         if ($message instanceof AssistantMessage && $message->toolCalls->isNotEmpty()) {
-            $msg['tool_calls'] = $message->toolCalls->map(
-                fn (ToolCall $toolCall) => $this->serializeToolCallToChat($toolCall)
+            /** @var Collection<int, ToolCall> $toolCalls */
+            $toolCalls = $message->toolCalls;
+            $msg['tool_calls'] = $toolCalls->map(
+                fn (ToolCall $toolCall): array => $this->serializeToolCallToChat($toolCall)
             )->all();
         }
 
@@ -85,6 +98,8 @@ trait MapsMessages
 
     /**
      * Map a tool result message to Chat Completions format.
+     *
+     * @param  array<int, array<string, mixed>>  $chatMessages
      */
     protected function mapToolResultMessage(ToolResultMessage|Message $message, array &$chatMessages): void
     {
@@ -92,7 +107,10 @@ trait MapsMessages
             return;
         }
 
-        foreach ($message->toolResults as $toolResult) {
+        /** @var Collection<int, ToolResult> $toolResults */
+        $toolResults = $message->toolResults;
+
+        foreach ($toolResults as $toolResult) {
             $chatMessages[] = [
                 'role' => 'tool',
                 'tool_call_id' => $toolResult->resultId ?? $toolResult->id,
@@ -103,6 +121,8 @@ trait MapsMessages
 
     /**
      * Serialize a tool call DTO to Chat Completions array format.
+     *
+     * @return array<string, mixed>
      */
     protected function serializeToolCallToChat(ToolCall $toolCall): array
     {
@@ -125,6 +145,14 @@ trait MapsMessages
             return $output;
         }
 
-        return is_array($output) ? json_encode($output) : strval($output);
+        if (is_array($output)) {
+            return (string) json_encode($output);
+        }
+
+        if (is_scalar($output) || $output === null) {
+            return strval($output);
+        }
+
+        return (string) json_encode($output);
     }
 }

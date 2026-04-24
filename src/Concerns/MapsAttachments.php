@@ -18,13 +18,16 @@ trait MapsAttachments
 {
     /**
      * Map the given Laravel attachments to Chat Completions content parts.
+     *
+     * @param  Collection<int, mixed>  $attachments
+     * @return array<int, array<string, mixed>>
      */
     protected function mapAttachments(Collection $attachments): array
     {
-        return $attachments->map(function ($attachment): array {
+        return $attachments->map(function (mixed $attachment): array {
             if (! $attachment instanceof File && ! $attachment instanceof UploadedFile) {
                 throw new InvalidArgumentException(
-                    'Unsupported attachment type ['.$attachment::class.']'
+                    'Unsupported attachment type ['.get_debug_type($attachment).']'
                 );
             }
 
@@ -39,7 +42,7 @@ trait MapsAttachments
                 ],
                 $attachment instanceof LocalImage => [
                     'type' => 'image_url',
-                    'image_url' => ['url' => 'data:'.($attachment->mimeType() ?? 'image/png').';base64,'.base64_encode(file_get_contents($attachment->path))],
+                    'image_url' => ['url' => 'data:'.($attachment->mimeType() ?? 'image/png').';base64,'.base64_encode((string) file_get_contents($attachment->path))],
                 ],
                 $attachment instanceof StoredImage => [
                     'type' => 'image_url',
@@ -49,7 +52,7 @@ trait MapsAttachments
                 ],
                 $attachment instanceof UploadedFile && $this->isImage($attachment) => [
                     'type' => 'image_url',
-                    'image_url' => ['url' => 'data:'.$attachment->getClientMimeType().';base64,'.base64_encode($attachment->get())],
+                    'image_url' => ['url' => 'data:'.$attachment->getClientMimeType().';base64,'.base64_encode((string) $attachment->get())],
                 ],
                 default => throw new InvalidArgumentException('Moonshot does not support document attachments. Only image attachments are supported.'),
             };

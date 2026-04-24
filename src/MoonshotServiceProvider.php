@@ -16,10 +16,13 @@ final class MoonshotServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->app->afterResolving(AiManager::class, function (AiManager $manager): void {
-            $manager->extend(self::KEY, fn (Application $app, array $config): MoonshotProvider => new MoonshotProvider(
-                $config,
-                $app->make(Dispatcher::class),
-            ));
+            $manager->extend(self::KEY, function (Application $app, array $config): MoonshotProvider {
+                /** @var array<string, mixed> $config */
+                return new MoonshotProvider(
+                    $config,
+                    $app->make(Dispatcher::class),
+                );
+            });
         });
     }
 }
