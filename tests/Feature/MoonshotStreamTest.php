@@ -3,116 +3,110 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
-use Jonaspauleta\PrismMoonshot\Moonshot;
-use Prism\Prism\Facades\Prism;
-use Prism\Prism\Streaming\Events\StreamEndEvent;
-use Prism\Prism\Streaming\Events\StreamEvent;
-use Prism\Prism\Streaming\Events\StreamStartEvent;
-use Prism\Prism\Streaming\Events\TextCompleteEvent;
-use Prism\Prism\Streaming\Events\TextDeltaEvent;
-use Prism\Prism\Streaming\Events\TextStartEvent;
+use Laravel\Ai\AiManager;
+use Laravel\Ai\Messages\Message;
+use Laravel\Ai\Streaming\Events\ReasoningDelta;
+use Laravel\Ai\Streaming\Events\ReasoningEnd;
+use Laravel\Ai\Streaming\Events\ReasoningStart;
+use Laravel\Ai\Streaming\Events\StreamEnd;
+use Laravel\Ai\Streaming\Events\StreamEvent;
+use Laravel\Ai\Streaming\Events\StreamStart;
+use Laravel\Ai\Streaming\Events\TextDelta;
+use Laravel\Ai\Streaming\Events\TextEnd;
+use Laravel\Ai\Streaming\Events\TextStart;
 
 beforeEach(function (): void {
     Http::preventStrayRequests();
 });
 
-it('applies the configured stream timeout to the streaming HTTP client', function (): void {
-    config()->set('prism.stream_timeout', 600);
+function sseFromChunks(array $chunks): string
+{
+    $lines = [];
 
-    $sse = implode("\n", [
-        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"role":"assistant"}}]}',
-        '',
-        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}',
-        '',
-        'data: [DONE]',
-        '',
-    ]);
-
-    /** @var array<string, mixed> $capturedOptions */
-    $capturedOptions = [];
-
-    Http::fake([
-        'api.moonshot.ai/v1/chat/completions' => function ($request, array $options) use (&$capturedOptions, $sse) {
-            $capturedOptions = $options;
-
-            return Http::response($sse, 200, ['Content-Type' => 'text/event-stream']);
-        },
-    ]);
-
-    foreach (Prism::text()->using(Moonshot::KEY, 'kimi-k2.6')->withPrompt('Hi')->asStream() as $_) {
-        // drain
+    foreach ($chunks as $chunk) {
+        $lines[] = 'data: '.json_encode($chunk);
+        $lines[] = '';
     }
 
-    expect($capturedOptions['timeout'] ?? null)->toBe(600);
-    expect($capturedOptions['connect_timeout'] ?? null)->toBe(600);
-});
+    $lines[] = 'data: [DONE]';
+    $lines[] = '';
 
-it('leaves the default Prism request timeout untouched when stream_timeout is not configured', function (): void {
-    config()->set('prism.request_timeout', 30);
-    config()->offsetUnset('prism.stream_timeout');
+    return implode("\n", $lines);
+}
 
-    $sse = implode("\n", [
-        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"role":"assistant"}}]}',
-        '',
-        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}',
-        '',
-        'data: [DONE]',
-        '',
-    ]);
-
-    /** @var array<string, mixed> $capturedOptions */
-    $capturedOptions = [];
-
-    Http::fake([
-        'api.moonshot.ai/v1/chat/completions' => function ($request, array $options) use (&$capturedOptions, $sse) {
-            $capturedOptions = $options;
-
-            return Http::response($sse, 200, ['Content-Type' => 'text/event-stream']);
-        },
-    ]);
-
-    foreach (Prism::text()->using(Moonshot::KEY, 'kimi-k2.6')->withPrompt('Hi')->asStream() as $_) {
-        // drain
-    }
-
-    expect($capturedOptions['timeout'] ?? null)->toBe(30);
-});
-
-it('streams text deltas from an SSE response', function (): void {
-    $sse = implode("\n", [
-        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"role":"assistant"}}]}',
-        '',
-        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"content":"Hello"}}]}',
-        '',
-        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"content":" world"}}]}',
-        '',
-        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}',
-        '',
-        'data: [DONE]',
-        '',
+it('streams text deltas from a chat completions SSE response', function (): void {
+    $sse = sseFromChunks([
+        ['id' => 'x', 'model' => 'kimi-k2.6', 'choices' => [['index' => 0, 'delta' => ['role' => 'assistant']]]],
+        ['id' => 'x', 'model' => 'kimi-k2.6', 'choices' => [['index' => 0, 'delta' => ['content' => 'Hello']]]],
+        ['id' => 'x', 'model' => 'kimi-k2.6', 'choices' => [['index' => 0, 'delta' => ['content' => ' world'], 'finish_reason' => 'stop']], 'usage' => ['prompt_tokens' => 3, 'completion_tokens' => 2]],
     ]);
 
     Http::fake([
-        'api.moonshot.ai/v1/chat/completions' => Http::response($sse, 200, [
-            'Content-Type' => 'text/event-stream',
-        ]),
+        'api.moonshot.ai/v1/chat/completions' => Http::response($sse, 200, ['Content-Type' => 'text/event-stream']),
     ]);
+
+    $provider = resolve(AiManager::class)->textProvider('moonshot');
 
     $events = [];
-    foreach (Prism::text()->using(Moonshot::KEY, 'kimi-k2.6')->withPrompt('Hi')->asStream() as $event) {
+    $generator = $provider->textGateway()->streamText(
+        'inv-1',
+        $provider,
+        'kimi-k2.6',
+        instructions: null,
+        messages: [new Message('user', 'Hi')],
+    );
+
+    foreach ($generator as $event) {
         $events[] = $event;
     }
 
-    $eventTypes = array_map(fn (StreamEvent $e): string => $e::class, $events);
+    $classes = array_map(fn (StreamEvent $e): string => $e::class, $events);
 
-    expect($eventTypes)->toContain(StreamStartEvent::class);
-    expect($eventTypes)->toContain(TextStartEvent::class);
-    expect($eventTypes)->toContain(TextDeltaEvent::class);
-    expect($eventTypes)->toContain(TextCompleteEvent::class);
-    expect($eventTypes)->toContain(StreamEndEvent::class);
+    expect($classes)->toContain(StreamStart::class)
+        ->and($classes)->toContain(TextStart::class)
+        ->and($classes)->toContain(TextDelta::class)
+        ->and($classes)->toContain(TextEnd::class)
+        ->and($classes)->toContain(StreamEnd::class);
 
-    $deltas = array_values(array_filter($events, fn (StreamEvent $e): bool => $e instanceof TextDeltaEvent));
-    $text = implode('', array_map(fn (TextDeltaEvent $e): string => $e->delta, $deltas));
+    $deltas = array_values(array_filter($events, fn ($e): bool => $e instanceof TextDelta));
+    $text = implode('', array_map(fn (TextDelta $e): string => $e->delta, $deltas));
 
     expect($text)->toBe('Hello world');
+});
+
+it('emits reasoning events when the model returns reasoning_content deltas', function (): void {
+    $sse = sseFromChunks([
+        ['id' => 'x', 'model' => 'kimi-k2-thinking', 'choices' => [['index' => 0, 'delta' => ['role' => 'assistant']]]],
+        ['id' => 'x', 'model' => 'kimi-k2-thinking', 'choices' => [['index' => 0, 'delta' => ['reasoning_content' => 'let me think...']]]],
+        ['id' => 'x', 'model' => 'kimi-k2-thinking', 'choices' => [['index' => 0, 'delta' => ['reasoning_content' => ' carefully']]]],
+        ['id' => 'x', 'model' => 'kimi-k2-thinking', 'choices' => [['index' => 0, 'delta' => ['content' => 'Answer']]]],
+        ['id' => 'x', 'model' => 'kimi-k2-thinking', 'choices' => [['index' => 0, 'delta' => [], 'finish_reason' => 'stop']], 'usage' => ['prompt_tokens' => 3, 'completion_tokens' => 4]],
+    ]);
+
+    Http::fake([
+        'api.moonshot.ai/v1/chat/completions' => Http::response($sse, 200, ['Content-Type' => 'text/event-stream']),
+    ]);
+
+    $provider = resolve(AiManager::class)->textProvider('moonshot');
+
+    $events = [];
+    foreach ($provider->textGateway()->streamText('inv-2', $provider, 'kimi-k2-thinking', null, [new Message('user', 'Hi')]) as $event) {
+        $events[] = $event;
+    }
+
+    $classes = array_map(fn (StreamEvent $e): string => $e::class, $events);
+    expect($classes)->toContain(ReasoningStart::class)
+        ->and($classes)->toContain(ReasoningDelta::class)
+        ->and($classes)->toContain(ReasoningEnd::class);
+
+    // ReasoningEnd must come before TextStart.
+    $reasoningEndIndex = array_search(ReasoningEnd::class, $classes, true);
+    $textStartIndex = array_search(TextStart::class, $classes, true);
+    expect($reasoningEndIndex)->toBeLessThan($textStartIndex);
+
+    $reasoning = implode('', array_map(
+        fn (ReasoningDelta $e): string => $e->delta,
+        array_filter($events, fn ($e): bool => $e instanceof ReasoningDelta),
+    ));
+    expect($reasoning)->toBe('let me think... carefully');
 });

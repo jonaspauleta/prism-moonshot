@@ -1,19 +1,18 @@
-# prism-moonshot
+# laravel-ai-moonshot
 
-[Moonshot AI](https://platform.kimi.ai/) (Kimi K2) provider for [Prism PHP](https://github.com/prism-php/prism) and the [Laravel AI SDK](https://github.com/laravel/ai). Same package, two integration points: `Prism::text()->using('moonshot', ...)` standalone, and `agent()->prompt(..., provider: 'moonshot')` through Laravel AI.
+[Moonshot AI](https://platform.kimi.ai/) (Kimi K2) provider for the [Laravel AI SDK](https://github.com/laravel/ai).
 
-Moonshot's API is OpenAI-compatible (`POST https://api.moonshot.ai/v1/chat/completions`), so this driver supports text generation, streaming, structured/JSON-mode output, tool calling, and reasoning content (`reasoning_content` deltas surfaced as `ThinkingEvent`s).
+Moonshot's API is OpenAI-compatible (`POST https://api.moonshot.ai/v1/chat/completions`), so this driver supports text generation, streaming, tool calling, and thinking-mode reasoning (`reasoning_content` deltas are surfaced as Laravel AI SDK `ReasoningStart` / `ReasoningDelta` / `ReasoningEnd` stream events).
 
 ## Requirements
 
 - PHP 8.5+
-- `prism-php/prism` ^0.99 || ^0.100
-- (optional) `laravel/ai` ^0.3 || ^0.4 || ^0.5 — for agent integration
+- `laravel/ai` ^0.6.3
 
 ## Install
 
 ```bash
-composer require jonaspauleta/prism-moonshot
+composer require jonaspauleta/laravel-ai-moonshot
 ```
 
 The service provider auto-registers via Laravel package discovery.
@@ -26,22 +25,6 @@ Set the API key:
 MOONSHOT_API_KEY=sk-...
 ```
 
-### Prism
-
-In `config/prism.php`:
-
-```php
-'providers' => [
-    // ...
-    'moonshot' => [
-        'api_key' => env('MOONSHOT_API_KEY'),
-        'url' => env('MOONSHOT_URL', 'https://api.moonshot.ai/v1'),
-    ],
-],
-```
-
-### Laravel AI SDK
-
 In `config/ai.php`:
 
 ```php
@@ -49,8 +32,10 @@ In `config/ai.php`:
     // ...
     'moonshot' => [
         'driver' => 'moonshot',
+        'name' => 'moonshot',
         'key' => env('MOONSHOT_API_KEY'),
-        'url' => env('MOONSHOT_URL', 'https://api.moonshot.ai/v1'),
+
+        // Optional per-tier model overrides — defaults shown below.
         'models' => [
             'text' => [
                 'default' => 'kimi-k2.6',
@@ -62,127 +47,39 @@ In `config/ai.php`:
 ],
 ```
 
-## Use it
-
-### Prism (standalone)
+## Usage
 
 ```php
-use Prism\Prism\Prism;
+use App\Ai\Agents\RaceEngineer;
+use Illuminate\Broadcasting\PrivateChannel;
 
-$response = Prism::text()
-    ->using('moonshot', 'kimi-k2.6')
-    ->withPrompt('Explain trail braking in two sentences.')
-    ->asText();
+$agent = new RaceEngineer($user);
 
-echo $response->text;
+$agent
+    ->forUser($user)
+    ->broadcastOnQueue(
+        'What is the best setup for the Nordschleife?',
+        new PrivateChannel("agent.{$user->id}.{$requestId}"),
+        provider: 'moonshot',
+        model: 'kimi-k2.6',
+    );
 ```
 
-Streaming:
+### Thinking mode
+
+Kimi's `kimi-k2.6` supports persistent reasoning across turns with `thinking.keep = all`. Return the payload from your agent's `providerOptions()` and the gateway merges it into the chat-completions body unchanged:
 
 ```php
-foreach (Prism::text()->using('moonshot', 'kimi-k2.6')->withPrompt('Tell me a story.')->asStream() as $event) {
-    // TextStartEvent, TextDeltaEvent, TextCompleteEvent, ToolCallEvent, ThinkingEvent, ...
-}
-```
-
-Structured / JSON mode:
-
-```php
-$response = Prism::structured()
-    ->using('moonshot', 'kimi-k2.6')
-    ->withSchema($schema)
-    ->withPrompt('Return the front and rear tyre pressures for a Porsche GT3.')
-    ->asStructured();
-```
-
-### Laravel AI SDK (agents)
-
-```php
-use Laravel\Ai\Attributes\Provider;
-use Laravel\Ai\Contracts\Agent;
-use Laravel\Ai\Promptable;
-
-#[Provider('moonshot')]
-final class TrackGuide implements Agent
+public function providerOptions(Lab|string $provider): array
 {
-    use Promptable;
-
-    public function instructions(): string
-    {
-        return 'You are a Spa-Francorchamps coach.';
-    }
-}
-
-$response = (new TrackGuide)->prompt('What gear for Eau Rouge?');
-```
-
-## Supported models
-
-Moonshot exposes both the **Kimi K2** family and the older **Moonshot V1** family. Defaults in the AI SDK driver target the K2 line:
-
-| Tier      | Default model              | Notes                              |
-|-----------|----------------------------|------------------------------------|
-| default   | `kimi-k2.6`                | Latest general-purpose K2 release  |
-| cheapest  | `kimi-k2-0905-preview`     | Earlier K2 snapshot                |
-| smartest  | `kimi-k2-thinking`         | Reasoning-tuned variant            |
-
-Other supported model identifiers from Moonshot's docs:
-`kimi-k2.5`, `kimi-k2-0711-preview`, `kimi-k2-turbo-preview`, `kimi-k2-thinking-turbo`, `moonshot-v1-8k`, `moonshot-v1-32k`, `moonshot-v1-128k`, `moonshot-v1-auto`, `moonshot-v1-{8k,32k,128k}-vision-preview`.
-
-> **Note:** Moonshot updates model IDs frequently. Verify the exact identifier by hitting `GET https://api.moonshot.ai/v1/models` with your API key, or by checking the [official model list](https://platform.kimi.ai/docs/api/overview). The defaults baked into this package reflect public docs at release time and are easy to override via the `models` config block.
-
-## What's supported
-
-- ✅ Text generation (`text()`)
-- ✅ Streaming (`stream()`) — including `reasoning_content` deltas as `ThinkingEvent`s
-- ✅ Structured output (`structured()`) — JSON mode via `response_format: json_object`
-- ✅ Tool / function calling
-- ✅ Vision input (image URL or base64) via OpenAI-compatible content array
-- ✅ **Thinking mode** — opt in via `withProviderOptions(['thinking' => true])` (sends `thinking: {type: enabled}`); for `kimi-k2.6` multi-turn, pass `['type' => 'enabled', 'keep' => 'all']` to preserve reasoning across turns
-- ❌ Embeddings — Moonshot has no public embeddings endpoint
-- ❌ File uploads (`POST /v1/files`) and `ms://<file_id>` references — not exposed in v0.x
-
-## Enabling thinking
-
-```php
-// Standalone Prism
-Prism::text()
-    ->using('moonshot', 'kimi-k2.6')
-    ->withProviderOptions(['thinking' => ['type' => 'enabled', 'keep' => 'all']])
-    ->withPrompt('Plan a Spa-Francorchamps cold-tyre out-lap.')
-    ->asText();
-
-// Laravel AI agent
-#[Provider('moonshot')]
-final class MyAgent implements Agent, HasProviderOptions
-{
-    public function providerOptions(): array
-    {
-        return ['thinking' => ['type' => 'enabled', 'keep' => 'all']];
-    }
+    return $provider === 'moonshot'
+        ? ['thinking' => ['type' => 'enabled', 'keep' => 'all']]
+        : [];
 }
 ```
 
-When thinking is enabled, the model returns `reasoning_content` deltas in the SSE stream — Prism surfaces them as `ThinkingStartEvent` / `ThinkingEvent` / `ThinkingCompleteEvent`.
-
-## How it bridges to the Laravel AI SDK
-
-The Laravel AI SDK ships a `PrismGateway` that maps its drivers to Prism's built-in `PrismProvider` enum. Because `moonshot` is not in that enum, this package's `MoonshotGateway` extends `PrismGateway` and overrides `configure()` to pass the driver name as a string to `Prism::using()`.
-
-A reflection probe in `MoonshotServiceProvider::needsGatewayOverride()` skips the override automatically once the upstream `toPrismProvider()` return type widens to `PrismProvider|string` (tracked in [laravel/ai#283](https://github.com/laravel/ai/issues/283)).
-
-## Development
-
-```bash
-composer install
-composer quality   # rector + pint + phpstan + pest
-```
+`reasoning_content` deltas then surface as `ReasoningStart` / `ReasoningDelta` / `ReasoningEnd` on the broadcast channel, before text streaming begins.
 
 ## License
 
-MIT — see [LICENSE.md](LICENSE.md).
-
-## Credits
-
-- Inspired by [meirdick/prism-workers-ai](https://github.com/meirdick/prism-workers-ai) for the dual-registration pattern.
-- Built on top of [prism-php/prism](https://github.com/prism-php/prism) and [laravel/ai](https://github.com/laravel/ai).
+MIT © João Paulo Santos

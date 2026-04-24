@@ -1,6 +1,6 @@
 <?php
 
 declare(strict_types=1);
-use Jonaspauleta\PrismMoonshot\Tests\TestCase;
+use Jonaspauleta\LaravelAiMoonshot\Tests\TestCase;
 
 uses(TestCase::class)->in('Feature');

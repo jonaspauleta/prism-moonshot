@@ -1,8 +1,8 @@
 {
-    "name": "jonaspauleta/prism-moonshot",
-    "description": "Moonshot AI (Kimi K2) provider for Prism PHP and Laravel AI SDK.",
-    "keywords": ["prism", "prism-php", "laravel", "laravel-ai", "moonshot", "kimi", "kimi-k2", "ai", "llm"],
-    "homepage": "https://github.com/jonaspauleta/prism-moonshot",
+    "name": "jonaspauleta/laravel-ai-moonshot",
+    "description": "Moonshot AI (Kimi) provider for the Laravel AI SDK.",
+    "keywords": ["laravel", "laravel-ai", "moonshot", "kimi", "kimi-k2", "ai", "llm"],
+    "homepage": "https://github.com/jonaspauleta/laravel-ai-moonshot",
     "license": "MIT",
     "type": "library",
     "authors": [
@@ -13,12 +13,11 @@
         "illuminate/contracts": "^11.0 || ^12.0 || ^13.0",
         "illuminate/http": "^11.0 || ^12.0 || ^13.0",
         "illuminate/support": "^11.0 || ^12.0 || ^13.0",
-        "prism-php/prism": "^0.99 || ^0.100"
+        "laravel/ai": "^0.6.3"
     },
     "require-dev": {
         "driftingly/rector-laravel": "^2.2",
         "larastan/larastan": "^3.0",
-        "laravel/ai": "^0.3 || ^0.4 || ^0.5",
         "laravel/pint": "^1.25",
         "orchestra/testbench": "^9.0 || ^10.0 || ^11.0",
         "pestphp/pest": "^3.0 || ^4.0",
@@ -27,17 +26,14 @@
         "phpstan/phpstan-phpunit": "^2.0",
         "rector/rector": "^2.2"
     },
-    "suggest": {
-        "laravel/ai": "Required for agent()->prompt() integration via Laravel AI SDK."
-    },
     "autoload": {
         "psr-4": {
-            "Jonaspauleta\\PrismMoonshot\\": "src/"
+            "Jonaspauleta\\LaravelAiMoonshot\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Jonaspauleta\\PrismMoonshot\\Tests\\": "tests/"
+            "Jonaspauleta\\LaravelAiMoonshot\\Tests\\": "tests/"
         }
     },
     "scripts": {
@@ -59,7 +55,7 @@
     },
     "extra": {
         "laravel": {
-            "providers": ["Jonaspauleta\\PrismMoonshot\\MoonshotServiceProvider"]
+            "providers": ["Jonaspauleta\\LaravelAiMoonshot\\MoonshotServiceProvider"]
         }
     },
     "minimum-stability": "stable",

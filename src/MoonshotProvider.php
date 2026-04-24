@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Jonaspauleta\PrismMoonshot\LaravelAi;
+namespace Jonaspauleta\LaravelAiMoonshot;
 
+use Illuminate\Contracts\Events\Dispatcher;
+use Laravel\Ai\Contracts\Gateway\TextGateway;
 use Laravel\Ai\Contracts\Providers\TextProvider;
 use Laravel\Ai\Providers\Concerns\GeneratesText;
 use Laravel\Ai\Providers\Concerns\HasTextGateway;
@@ -14,13 +16,26 @@ use Laravel\Ai\Providers\Provider;
  * Laravel AI SDK provider for Moonshot AI (Kimi).
  *
  * Defaults map to the Kimi model family. Override via the consumer's
- * `config/ai.php` `models.text.{default,cheapest,smartest}` keys.
+ * `config/ai.php` `providers.moonshot.models.text.{default,cheapest,smartest}` keys.
  */
 final class MoonshotProvider extends Provider implements TextProvider
 {
     use GeneratesText;
     use HasTextGateway;
     use StreamsText;
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    public function __construct(protected array $config, protected Dispatcher $events)
+    {
+        //
+    }
+
+    public function textGateway(): TextGateway
+    {
+        return $this->textGateway ??= new MoonshotGateway($this->events);
+    }
 
     public function defaultTextModel(): string
     {
