@@ -16,6 +16,68 @@ beforeEach(function (): void {
     Http::preventStrayRequests();
 });
 
+it('applies the configured stream timeout to the streaming HTTP client', function (): void {
+    config()->set('prism.stream_timeout', 600);
+
+    $sse = implode("\n", [
+        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"role":"assistant"}}]}',
+        '',
+        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}',
+        '',
+        'data: [DONE]',
+        '',
+    ]);
+
+    /** @var array<string, mixed> $capturedOptions */
+    $capturedOptions = [];
+
+    Http::fake([
+        'api.moonshot.ai/v1/chat/completions' => function ($request, array $options) use (&$capturedOptions, $sse) {
+            $capturedOptions = $options;
+
+            return Http::response($sse, 200, ['Content-Type' => 'text/event-stream']);
+        },
+    ]);
+
+    foreach (Prism::text()->using(Moonshot::KEY, 'kimi-k2.6')->withPrompt('Hi')->asStream() as $_) {
+        // drain
+    }
+
+    expect($capturedOptions['timeout'] ?? null)->toBe(600);
+    expect($capturedOptions['connect_timeout'] ?? null)->toBe(600);
+});
+
+it('leaves the default Prism request timeout untouched when stream_timeout is not configured', function (): void {
+    config()->set('prism.request_timeout', 30);
+    config()->offsetUnset('prism.stream_timeout');
+
+    $sse = implode("\n", [
+        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"role":"assistant"}}]}',
+        '',
+        'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}',
+        '',
+        'data: [DONE]',
+        '',
+    ]);
+
+    /** @var array<string, mixed> $capturedOptions */
+    $capturedOptions = [];
+
+    Http::fake([
+        'api.moonshot.ai/v1/chat/completions' => function ($request, array $options) use (&$capturedOptions, $sse) {
+            $capturedOptions = $options;
+
+            return Http::response($sse, 200, ['Content-Type' => 'text/event-stream']);
+        },
+    ]);
+
+    foreach (Prism::text()->using(Moonshot::KEY, 'kimi-k2.6')->withPrompt('Hi')->asStream() as $_) {
+        // drain
+    }
+
+    expect($capturedOptions['timeout'] ?? null)->toBe(30);
+});
+
 it('streams text deltas from an SSE response', function (): void {
     $sse = implode("\n", [
         'data: {"id":"x","model":"kimi-k2.6","choices":[{"index":0,"delta":{"role":"assistant"}}]}',

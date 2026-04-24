@@ -47,10 +47,18 @@ final class Moonshot extends Provider
     #[Override]
     public function stream(TextRequest $request): Generator
     {
-        return new Stream($this->client(
+        $client = $this->client(
             $request->clientOptions(),
             $request->clientRetry(),
-        ))->handle($request);
+        );
+
+        $streamTimeout = $this->streamTimeout();
+
+        if ($streamTimeout !== null) {
+            $client->timeout($streamTimeout)->connectTimeout($streamTimeout);
+        }
+
+        return new Stream($client)->handle($request);
     }
 
     #[Override]
@@ -88,6 +96,23 @@ final class Moonshot extends Provider
     private function nullableString(mixed $value): ?string
     {
         return is_string($value) ? $value : null;
+    }
+
+    /**
+     * Streaming responses from Moonshot with `thinking` enabled can idle on a
+     * single connection for minutes between deltas. The default Prism request
+     * timeout (applied via `InitializesClient`) trips cURL mid-stream. Read
+     * a dedicated stream timeout from config so callers can extend the
+     * ceiling for streaming without bumping the per-request timeout used by
+     * text/structured calls.
+     */
+    private function streamTimeout(): ?int
+    {
+        $value = config('prism.stream_timeout');
+
+        return is_int($value) || (is_string($value) && ctype_digit($value))
+            ? (int) $value
+            : null;
     }
 
     /**
