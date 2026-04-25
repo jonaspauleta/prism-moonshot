@@ -1,0 +1,89 @@
+name: catalog-drift
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gate on secret presence
+        id: gate
+        env:
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+        run: |
+          if [ -z "${MOONSHOT_API_KEY}" ]; then
+            echo "MOONSHOT_API_KEY secret not set — skipping drift check."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch live catalog
+        if: ${{ steps.gate.outputs.skip != 'true' }}
+        env:
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+        run: |
+          curl -fsSL \
+            -H "Authorization: Bearer ${MOONSHOT_API_KEY}" \
+            -H "Accept: application/json" \
+            https://api.moonshot.ai/v1/models > catalog.json
+          jq -r '.data[].id' catalog.json | sort > catalog.ids
+
+      - name: Verify package defaults are still listed
+        id: verify
+        if: ${{ steps.gate.outputs.skip != 'true' }}
+        run: |
+          set -e
+          missing=()
+          for id in kimi-k2.6 kimi-k2.5; do
+            if ! grep -Fxq "$id" catalog.ids; then
+              missing+=("$id")
+            fi
+          done
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            {
+              echo "## Moonshot catalog drift detected"
+              echo
+              echo "The following default model IDs are no longer in Moonshot's \`/v1/models\` response:"
+              echo
+              for id in "${missing[@]}"; do
+                echo "- \`$id\`"
+              done
+              echo
+              echo "**Action required:** update \`MoonshotProvider\` defaults, the README models table, and the \`bin/smoke.php\` model list, then ship a new patch release."
+              echo
+              echo "### Live catalog at run time"
+              echo
+              echo '```'
+              cat catalog.ids
+              echo '```'
+            } > drift-issue.md
+            cat drift-issue.md
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Open issue on drift
+        if: ${{ failure() && steps.verify.outputs.missing == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue create \
+            --repo "$REPO" \
+            --title "Catalog drift: Moonshot retired one or more default model IDs" \
+            --label "bug" \
+            --label "catalog-drift" \
+            --body-file drift-issue.md \
+            || echo "Issue creation failed (may already exist)."
