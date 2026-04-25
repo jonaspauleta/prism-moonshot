@@ -23,11 +23,11 @@ Moonshot's API is OpenAI-compatible (`POST https://api.moonshot.ai/v1/chat/compl
 
 ## Requirements
 
-| Requirement      | Version              |
-|------------------|----------------------|
-| PHP              | `^8.3` (8.3, 8.4, 8.5) |
-| Laravel          | `12.x \| 13.x`       |
-| `laravel/ai`     | `^0.6.3`             |
+| Requirement      | Version            |
+|------------------|--------------------|
+| PHP              | `^8.4` (8.4, 8.5)  |
+| Laravel          | `12.x \| 13.x`     |
+| `laravel/ai`     | `^0.6.3`           |
 
 `laravel/ai 0.6.x` requires `illuminate/* ^12.0|^13.0`, so Laravel 11 is not supported. CI exercises every PHP × Laravel combination above on each push and PR.
 
