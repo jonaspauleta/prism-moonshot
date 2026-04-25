@@ -490,7 +490,7 @@ CI runs Pint, Rector (dry-run), PHPStan, and Pest on every push and PR — see [
 This package follows [Semantic Versioning](https://semver.org/), but the upstream `laravel/ai` SDK is still on `0.x` — its minor bumps may include breaking changes. To keep our SemVer promise honest:
 
 - We pin to a specific `laravel/ai` minor: `composer.json` requires `~0.6.3` (allows `0.6.x` patches but **not** `0.7.0`).
-- Each new `laravel/ai` minor (`0.7`, `0.8`, …) lands in this package as **one of our minor releases** (`1.2.0`, `1.3.0`, …) after a compatibility audit.
+- Each new `laravel/ai` minor (`0.7`, `0.8`, …) lands in this package as one of our minor releases after a compatibility audit.
 - Truly breaking changes here (renaming public classes, removing a public method, dropping a PHP version) bump our **major**.
 
 If `laravel/ai` reaches `1.0.0` we will widen the constraint to `^1.0` and follow standard SemVer ranges.

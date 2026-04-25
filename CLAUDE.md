@@ -47,7 +47,7 @@ code.
 - **`ReasoningEnd` must fire before the first `TextStart`.** The streaming
   trait tracks `$reasoningStartEmitted` / `$reasoningEndEmitted` for this. If
   you refactor, keep the invariant; there is a feature test asserting the order.
-- **Default model IDs come from Moonshot's public catalog.** As of v1.1.2:
+- **Default model IDs come from Moonshot's public catalog.**
   `default` and `smartest` map to `kimi-k2.6`; `cheapest` maps to `kimi-k2.5`.
   There is no separate "thinking" SKU — thinking is enabled via
   `providerOptions(['thinking' => ['type' => 'enabled']])`. If Moonshot
@@ -67,8 +67,8 @@ code.
   keep it that way. Moonshot has no provider-side tools (web search, etc.).
 - Publish a `config/moonshot.php`. Configuration lives under
   `config('ai.providers.moonshot')` — that is the SDK convention.
-- Reintroduce Prism. The package targets `laravel/ai` only as of v1.0.0. The
-  Prism implementation was removed in commit `548e57b`; the migration is
-  documented in `CHANGELOG.md`.
+- Reintroduce Prism. The package targets `laravel/ai` only. The Prism
+  implementation was removed in commit `548e57b` before the first public
+  release.
 - Bring in `spatie/laravel-package-tools`. Nothing to publish — vanilla
   `ServiceProvider` is enough.

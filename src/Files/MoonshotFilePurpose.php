@@ -7,9 +7,9 @@ namespace Jonaspauleta\LaravelAiMoonshot\Files;
 /**
  * Upload purposes accepted by Moonshot's POST /v1/files endpoint.
  *
- * Only FileExtract is exposed publicly in v1.2.0. Image and Video are
- * reserved for future versions; the chat gateway already handles vision
- * via the SDK's image attachment contracts.
+ * Only FileExtract is exposed publicly. Image and Video are reserved for
+ * future use; the chat gateway already handles vision via the SDK's image
+ * attachment contracts.
  */
 enum MoonshotFilePurpose: string
 {
