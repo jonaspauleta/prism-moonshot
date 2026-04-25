@@ -35,7 +35,7 @@
         "illuminate/contracts": "^12.0 || ^13.0",
         "illuminate/http": "^12.0 || ^13.0",
         "illuminate/support": "^12.0 || ^13.0",
-        "laravel/ai": "^0.6.3"
+        "laravel/ai": "~0.6.3"
     },
     "require-dev": {
         "driftingly/rector-laravel": "^2.2",
@@ -64,6 +64,7 @@
         "analyse": "vendor/bin/phpstan analyse --memory-limit=512M",
         "format": "vendor/bin/pint",
         "refactor": "vendor/bin/rector --no-diffs",
+        "smoke": "@php bin/smoke.php",
         "quality": [
             "@refactor",
             "@format",
