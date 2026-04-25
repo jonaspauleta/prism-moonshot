@@ -25,6 +25,11 @@
     "authors": [
         { "name": "João Paulo Santos", "email": "jpaulo4799santos@gmail.com", "role": "Developer" }
     ],
+    "support": {
+        "issues": "https://github.com/jonaspauleta/laravel-ai-moonshot/issues",
+        "source": "https://github.com/jonaspauleta/laravel-ai-moonshot",
+        "docs": "https://github.com/jonaspauleta/laravel-ai-moonshot#readme"
+    },
     "require": {
         "php": "^8.4",
         "illuminate/contracts": "^12.0 || ^13.0",

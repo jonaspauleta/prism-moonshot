@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-04-25
+
+### Added
+
+- Test coverage for the new exception classes: `UnsupportedProviderToolException` (provider-tool path) and both `UnsupportedAttachmentException` paths (`::for()` for unknown types, `::document()` for non-image `File` subclasses).
+- `composer.json` `support` section pointing at the GitHub issue tracker, source, and README. Surfaces helpful links on the Packagist package page.
+
 ## [1.1.0] - 2026-04-25
 
 ### Added
@@ -75,6 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    ],
    ```
 
+[1.1.1]: https://github.com/jonaspauleta/laravel-ai-moonshot/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/jonaspauleta/laravel-ai-moonshot/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/jonaspauleta/laravel-ai-moonshot/releases/tag/v1.0.0
 
@@ -109,5 +117,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pest 4 + PHPStan level max + Pint + Rector quality pipeline.
 - GitHub Actions workflow.
 
-[Unreleased]: https://github.com/jonaspauleta/laravel-ai-moonshot/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/jonaspauleta/laravel-ai-moonshot/compare/v1.1.1...HEAD
 [0.1.0]: https://github.com/jonaspauleta/laravel-ai-moonshot/releases/tag/v0.1.0
