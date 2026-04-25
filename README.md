@@ -1,44 +1,70 @@
 # laravel-ai-moonshot
 
-[Moonshot AI](https://platform.kimi.ai/) (Kimi K2) provider for the [Laravel AI SDK](https://github.com/laravel/ai).
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/jonaspauleta/laravel-ai-moonshot.svg?style=flat-square)](https://packagist.org/packages/jonaspauleta/laravel-ai-moonshot)
+[![Total Downloads](https://img.shields.io/packagist/dt/jonaspauleta/laravel-ai-moonshot.svg?style=flat-square)](https://packagist.org/packages/jonaspauleta/laravel-ai-moonshot)
+[![Tests](https://img.shields.io/github/actions/workflow/status/jonaspauleta/laravel-ai-moonshot/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/jonaspauleta/laravel-ai-moonshot/actions/workflows/run-tests.yml)
+[![License](https://img.shields.io/packagist/l/jonaspauleta/laravel-ai-moonshot.svg?style=flat-square)](LICENSE.md)
 
-Moonshot's API is OpenAI-compatible (`POST https://api.moonshot.ai/v1/chat/completions`), so this driver supports text generation, streaming, tool calling, and thinking-mode reasoning (`reasoning_content` deltas are surfaced as Laravel AI SDK `ReasoningStart` / `ReasoningDelta` / `ReasoningEnd` stream events).
+[Moonshot AI](https://platform.moonshot.ai/) (Kimi K2) provider for the official [Laravel AI SDK](https://github.com/laravel/ai).
+
+Moonshot's API is OpenAI-compatible (`POST https://api.moonshot.ai/v1/chat/completions`), so this driver plugs directly into the SDK's `TextProvider` / `TextGateway` contracts and behaves like any first-party provider — `agent()`, `Ai::textProvider()`, agent classes with `#[Provider]` attributes, streaming, tool calling, broadcasting, and queued prompts all work out of the box.
+
+## Features
+
+- ✅ Text generation (`prompt()`)
+- ✅ Streaming responses (`stream()`, `broadcast()`, `broadcastOnQueue()`)
+- ✅ Tool calling (function calling)
+- ✅ Image attachments (base64, remote URL, local file, stored disk, `UploadedFile`)
+- ✅ Kimi **thinking mode** with `reasoning_content` deltas surfaced as `ReasoningStart` / `ReasoningDelta` / `ReasoningEnd` stream events
+- ✅ Multi-turn reasoning persistence (`thinking.keep = all`)
+- ✅ Per-tier model overrides (`default`, `cheapest`, `smartest`)
+- ✅ Custom base URL (proxy / self-hosted compatible)
+- ✅ PHPStan level max, Pest 3 / 4, Pint, Rector — full quality pipeline
 
 ## Requirements
 
-- PHP 8.5+
-- `laravel/ai` ^0.6.3
+| Requirement      | Version              |
+|------------------|----------------------|
+| PHP              | `^8.3` (8.3, 8.4, 8.5) |
+| Laravel          | `12.x \| 13.x`       |
+| `laravel/ai`     | `^0.6.3`             |
 
-## Install
+`laravel/ai 0.6.x` requires `illuminate/* ^12.0|^13.0`, so Laravel 11 is not supported. CI exercises every PHP × Laravel combination above on each push and PR.
+
+## Installation
 
 ```bash
 composer require jonaspauleta/laravel-ai-moonshot
 ```
 
-The service provider auto-registers via Laravel package discovery.
+The service provider is auto-discovered. There are no migrations or config files to publish — configuration lives in your application's existing `config/ai.php`.
 
-## Configure
+## Configuration
 
-Set the API key:
+Add your API key to `.env`:
 
 ```env
 MOONSHOT_API_KEY=sk-...
 ```
 
-In `config/ai.php`:
+Register the provider in `config/ai.php`:
 
 ```php
 'providers' => [
     // ...
+
     'moonshot' => [
         'driver' => 'moonshot',
         'name' => 'moonshot',
         'key' => env('MOONSHOT_API_KEY'),
 
-        // Optional per-tier model overrides — defaults shown below.
+        // Optional. Defaults shown.
+        'url' => env('MOONSHOT_URL', 'https://api.moonshot.ai/v1'),
+
+        // Optional per-tier model overrides.
         'models' => [
             'text' => [
-                'default' => 'kimi-k2.6',
+                'default'  => 'kimi-k2.6',
                 'cheapest' => 'kimi-k2-0905-preview',
                 'smartest' => 'kimi-k2-thinking',
             ],
@@ -47,16 +73,110 @@ In `config/ai.php`:
 ],
 ```
 
-## Usage
+To make Moonshot the default provider for the whole application:
 
 ```php
-use App\Ai\Agents\RaceEngineer;
+'default' => env('AI_PROVIDER', 'moonshot'),
+```
+
+### Configuration reference
+
+| Key                    | Type     | Required | Default                       | Description                                                                       |
+|------------------------|----------|----------|-------------------------------|-----------------------------------------------------------------------------------|
+| `driver`               | `string` | yes      | —                             | Must be `'moonshot'`. Resolves the provider in `AiManager`.                       |
+| `name`                 | `string` | yes      | —                             | Display name returned by `Provider::name()`.                                      |
+| `key`                  | `string` | yes      | —                             | Your Moonshot API key.                                                            |
+| `url`                  | `string` | no       | `https://api.moonshot.ai/v1`  | API base URL. Override for proxies or regional endpoints.                         |
+| `models.text.default`  | `string` | no       | `kimi-k2.6`                   | Used by `Provider::defaultTextModel()`.                                           |
+| `models.text.cheapest` | `string` | no       | `kimi-k2-0905-preview`        | Used by `Provider::cheapestTextModel()` and the `#[UseCheapestModel]` attribute.  |
+| `models.text.smartest` | `string` | no       | `kimi-k2-thinking`            | Used by `Provider::smartestTextModel()` and the `#[UseSmartestModel]` attribute.  |
+
+## How it works
+
+This package ships a single Laravel AI SDK provider — `MoonshotProvider` — backed by `MoonshotGateway`, a `TextGateway` that calls Moonshot's OpenAI-compatible `POST /v1/chat/completions` endpoint. Registration happens in `MoonshotServiceProvider::boot()` via `AiManager::extend('moonshot', …)`, so the driver string `'moonshot'` resolves to a real provider anywhere the SDK looks one up (`agent(provider: 'moonshot')`, `Ai::textProvider('moonshot')`, the `#[Provider('moonshot')]` attribute, etc.).
+
+Streaming reads the SSE body chunk-by-chunk and maps Moonshot's payload to the SDK's stream events:
+
+- `delta.content` → `TextStart` / `TextDelta` / `TextEnd`
+- `delta.reasoning_content` → `ReasoningStart` / `ReasoningDelta` / `ReasoningEnd` (Kimi thinking mode)
+- `delta.tool_calls` → buffered, then `ToolCall` + `ToolResult` after `finish_reason: tool_calls`
+- `usage` chunk → `StreamEnd` payload
+
+`ReasoningEnd` is guaranteed to fire before the first `TextStart` when the model transitions out of thinking. Multi-step tool loops are continued internally up to `TextGenerationOptions::$maxSteps` (default `ceil(count(tools) * 1.5)`).
+
+## Usage
+
+### Quick start (ad-hoc agent)
+
+```php
+use function Laravel\Ai\agent;
+
+$response = agent('You are a helpful assistant.')
+    ->prompt('Explain Moonshot Kimi K2 in one sentence.', provider: 'moonshot');
+
+echo $response->text;
+```
+
+### Agent class
+
+Generate one with `php artisan make:agent RaceEngineer` (the generator ships with `laravel/ai`), or write it by hand:
+
+```php
+namespace App\Ai\Agents;
+
+use Laravel\Ai\Attributes\Provider;
+use Laravel\Ai\Contracts\Agent;
+use Laravel\Ai\Contracts\Conversational;
+use Laravel\Ai\Contracts\HasTools;
+use Laravel\Ai\Promptable;
+use Stringable;
+
+#[Provider('moonshot')]
+class RaceEngineer implements Agent, Conversational, HasTools
+{
+    use Promptable;
+
+    public function instructions(): Stringable|string
+    {
+        return 'You are a Formula 1 race engineer. Be concise and technical.';
+    }
+
+    public function messages(): iterable
+    {
+        return [];
+    }
+
+    public function tools(): iterable
+    {
+        return [];
+    }
+}
+```
+
+```php
+$response = RaceEngineer::make()
+    ->prompt('Best dry setup for the Nordschleife in a GT3?');
+
+echo $response->text;
+```
+
+### Streaming
+
+```php
+$stream = RaceEngineer::make()
+    ->stream('Walk me through a flying lap at Spa.', provider: 'moonshot');
+
+foreach ($stream as $event) {
+    // TextStart, TextDelta, TextEnd, ReasoningStart, ReasoningDelta, ReasoningEnd, ...
+}
+```
+
+### Broadcasting (Echo / Reverb)
+
+```php
 use Illuminate\Broadcasting\PrivateChannel;
 
-$agent = new RaceEngineer($user);
-
-$agent
-    ->forUser($user)
+RaceEngineer::make()
     ->broadcastOnQueue(
         'What is the best setup for the Nordschleife?',
         new PrivateChannel("agent.{$user->id}.{$requestId}"),
@@ -65,21 +185,183 @@ $agent
     );
 ```
 
-### Thinking mode
-
-Kimi's `kimi-k2.6` supports persistent reasoning across turns with `thinking.keep = all`. Return the payload from your agent's `providerOptions()` and the gateway merges it into the chat-completions body unchanged:
+### Tool calling
 
 ```php
-public function providerOptions(Lab|string $provider): array
+use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Laravel\Ai\Contracts\Tool;
+use Laravel\Ai\Tools\Request;
+
+class GetWeather implements Tool
 {
-    return $provider === 'moonshot'
-        ? ['thinking' => ['type' => 'enabled', 'keep' => 'all']]
-        : [];
+    public function description(): string
+    {
+        return 'Get the current weather for a city.';
+    }
+
+    public function schema(JsonSchema $schema): array
+    {
+        return [
+            'city' => $schema->string()->description('City name')->required(),
+        ];
+    }
+
+    public function handle(Request $request): string
+    {
+        $city = $request->string('city');
+
+        return "Sunny, 24°C in {$city}.";
+    }
 }
 ```
 
-`reasoning_content` deltas then surface as `ReasoningStart` / `ReasoningDelta` / `ReasoningEnd` on the broadcast channel, before text streaming begins.
+```php
+use function Laravel\Ai\agent;
+
+$response = agent(
+    instructions: 'Use tools when needed.',
+    tools: [new GetWeather],
+)->prompt('What is the weather in Lisbon?', provider: 'moonshot');
+```
+
+### Image attachments
+
+```php
+use Laravel\Ai\Files\RemoteImage;
+use function Laravel\Ai\agent;
+
+$response = agent('Describe the image.')
+    ->prompt(
+        prompt: 'What do you see?',
+        attachments: [new RemoteImage('https://example.com/photo.jpg')],
+        provider: 'moonshot',
+    );
+```
+
+Supported attachment types: `Base64Image`, `RemoteImage`, `LocalImage`, `StoredImage`, and `Illuminate\Http\UploadedFile` (when the MIME type is `image/jpeg|png|gif|webp`). Document attachments are **not** supported by Moonshot — pass them as text or extract them client-side.
+
+### Thinking mode (Kimi K2 / `kimi-k2-thinking`)
+
+Kimi's `kimi-k2.6` and `kimi-k2-thinking` models expose chain-of-thought through `reasoning_content` deltas. This package surfaces them as standard Laravel AI SDK stream events — `ReasoningStart` → `ReasoningDelta` → `ReasoningEnd` — and guarantees `ReasoningEnd` fires before the first `TextStart`.
+
+Pass Moonshot's native `thinking` payload by implementing `HasProviderOptions` on your agent. The gateway merges the array into the request body verbatim:
+
+```php
+namespace App\Ai\Agents;
+
+use Laravel\Ai\Attributes\Provider;
+use Laravel\Ai\Contracts\Agent;
+use Laravel\Ai\Contracts\Conversational;
+use Laravel\Ai\Contracts\HasProviderOptions;
+use Laravel\Ai\Contracts\HasTools;
+use Laravel\Ai\Enums\Lab;
+use Laravel\Ai\Promptable;
+use Stringable;
+
+#[Provider('moonshot')]
+class ThinkingAgent implements Agent, Conversational, HasProviderOptions, HasTools
+{
+    use Promptable;
+
+    public function instructions(): Stringable|string
+    {
+        return 'Think step by step before answering.';
+    }
+
+    public function messages(): iterable
+    {
+        return [];
+    }
+
+    public function tools(): iterable
+    {
+        return [];
+    }
+
+    public function providerOptions(Lab|string $provider): array
+    {
+        return $provider === 'moonshot'
+            // type: 'enabled' | 'disabled'
+            // keep: 'all' — kimi-k2.6 only, preserves reasoning across multi-turn conversations
+            ? ['thinking' => ['type' => 'enabled', 'keep' => 'all']]
+            : [];
+    }
+}
+```
+
+> **Note:** the `keep: 'all'` flag is `kimi-k2.6`-specific. For one-off thinking with `kimi-k2-thinking`, send `['thinking' => ['type' => 'enabled']]`.
+
+## Models
+
+The defaults track Moonshot's [public model catalog](https://platform.moonshot.ai/docs/api/chat). Override per-tier in `config/ai.php` if Moonshot renames models or you want to pin a specific snapshot.
+
+| Tier      | Default ID                | Used by                                       |
+|-----------|---------------------------|-----------------------------------------------|
+| Default   | `kimi-k2.6`               | `Provider::defaultTextModel()`                |
+| Cheapest  | `kimi-k2-0905-preview`    | `#[UseCheapestModel]`, `cheapestTextModel()`  |
+| Smartest  | `kimi-k2-thinking`        | `#[UseSmartestModel]`, `smartestTextModel()`  |
+
+You can also pass an explicit model per call: `->prompt('...', model: 'kimi-k2.6')`.
+
+## Caveats
+
+**Structured output is best-effort.** When the SDK passes a JSON Schema (via the structured agent flow), the gateway sets `response_format: json_object` and prepends the schema to the system instructions — but Moonshot does **not** enforce JSON Schema server-side. Validate the response in your application (e.g. with `spatie/laravel-data` or any JSON Schema validator) and retry on parse errors.
+
+## Not supported
+
+The Moonshot API does not expose endpoints for the following capabilities at the time of release; this package will throw or fail-fast rather than fake them:
+
+- **Embeddings** — Moonshot has no embeddings endpoint.
+- **Image generation, audio, transcription, reranking** — text only.
+- **Provider tools** (`ProviderTool` subclasses such as web search) — throws `RuntimeException` if passed.
+- **Document attachments** — only image attachments are supported.
+
+## Troubleshooting
+
+| Symptom                                                                                       | Cause / fix                                                                                                                                               |
+|-----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Driver [moonshot] is not supported.`                                                          | `MoonshotServiceProvider` did not boot. Ensure auto-discovery is on, or register manually in `config/app.php` `providers`.                                |
+| HTTP 401 `Invalid API key`                                                                     | `MOONSHOT_API_KEY` missing or wrong. Verify with `dd(config('ai.providers.moonshot.key'))` after a `php artisan config:clear`.                            |
+| HTTP 400 `model not found` for `kimi-k2.6` (or any default tier)                               | Moonshot renamed or retired the default. Pin a working model under `config/ai.php` `providers.moonshot.models.text.{default,cheapest,smartest}`.          |
+| `RuntimeException: Provider tools are not supported by Moonshot.`                              | You passed a `ProviderTool` subclass (e.g. web search). Use plain function tools or remove the provider tool.                                             |
+| Document attachment is silently ignored or rejected                                            | Moonshot accepts image attachments only. Extract document text client-side and send as a regular `Message`.                                                |
+| Structured output returns malformed JSON                                                      | Moonshot does **not** enforce JSON Schema server-side. Validate the response in your app and retry on parse error. See [Caveats](#caveats).               |
+| Streaming hangs on long thinking-mode responses                                               | Default per-request timeout is 60s. Pass `timeout:` to `streamText()` or raise it in the gateway's HTTP client invocation.                                |
+| `Http::fake()` in tests does not intercept the request                                        | Fake key must include the full base URL: `'api.moonshot.ai/v1/chat/completions' => Http::response(...)`. The Laravel HTTP client applies the base URL.    |
+
+## Testing
+
+```bash
+composer test          # Pest
+composer analyse       # PHPStan level max
+composer format        # Pint
+composer quality       # rector + pint + phpstan + pest
+```
+
+CI runs Pint, Rector (dry-run), PHPStan, and Pest on every push and PR — see [`.github/workflows/run-tests.yml`](.github/workflows/run-tests.yml).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes. The project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
+
+## Contributing
+
+Contributions are welcome. Please:
+
+1. Open an issue first for larger changes so we can discuss the approach.
+2. Run `composer quality` before pushing — CI will fail otherwise.
+3. Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
+4. Add Pest tests for new behavior. `tests/Feature/MoonshotStreamTest.php` is a good template for HTTP-faked gateway tests.
+
+## Security
+
+If you discover a security vulnerability, please email **jpaulo4799santos@gmail.com** instead of opening a public issue. You'll get a response within 48 hours. See [SECURITY.md](SECURITY.md) for the full policy.
+
+## Credits
+
+- [João Paulo Santos](https://github.com/jonaspauleta)
+- The [Laravel AI SDK](https://github.com/laravel/ai) team — `MoonshotGateway` is modeled directly on the SDK's first-party `DeepSeekGateway`.
 
 ## License
 
-MIT © João Paulo Santos
+The MIT License (MIT). See [LICENSE.md](LICENSE.md).
