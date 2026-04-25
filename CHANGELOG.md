@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-04-25
+
+### Changed
+
+- README presentation pass for release-readiness:
+  - New **Capability matrix** section after Features (yes/no per capability so limitations are obvious before users invest time).
+  - **Limitations** + **Package maturity** callouts near the top, with cross-links to `Not supported` and `Versioning`.
+  - New **60-second quick start** section after Installation (require → `.env` → minimal `config/ai.php` → one `agent()` call).
+  - Troubleshooting row for document attachments now points to `withMoonshotFile()` / `MoonshotFiles` first and states that generic `Document` attachments are intentionally unsupported (was: "extract text client-side").
+- `composer.json` description tightened to `"Moonshot AI (Kimi K2) provider for the official Laravel AI SDK."` (was a longer feature list — kept as keywords).
+
+### Fixed
+
+- README Requirements table listed `laravel/ai` as `^0.6.3` while `composer.json` actually pins `~0.6.3`. Aligned README to match — the Versioning section already documented the per-minor pin.
+
 ## [1.2.0] - 2026-04-25
 
 ### Added

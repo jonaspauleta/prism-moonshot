@@ -22,13 +22,32 @@ Moonshot's API is OpenAI-compatible (`POST https://api.moonshot.ai/v1/chat/compl
 - ✅ Custom base URL (proxy / self-hosted compatible)
 - ✅ PHPStan level max, Pest 3 / 4, Pint, Rector — full quality pipeline
 
+## Capability matrix
+
+| Capability                                  | Status                                          |
+|---------------------------------------------|-------------------------------------------------|
+| Text generation                             | Supported                                       |
+| Streaming                                   | Supported                                       |
+| Tool calling                                | Supported — function tools only                 |
+| Image input                                 | Supported                                       |
+| Document Q&A                                | Supported via Moonshot Files API                |
+| Thinking mode (Kimi reasoning)              | Supported                                       |
+| Structured output                           | Best-effort — JSON mode, validate manually      |
+| Provider tools (web search, etc.)           | Not supported                                   |
+| Embeddings                                  | Not supported                                   |
+| Image generation / audio / transcription / reranking | Not supported                          |
+
+> **Limitations:** no embeddings, no image generation, no audio/transcription/reranking, no provider-hosted tools, and documents must use the Moonshot Files API (`withMoonshotFile()` / `MoonshotFiles`) instead of Laravel AI generic `Document` attachments. See [Not supported](#not-supported) for details.
+
+> **Package maturity:** this package tracks the evolving `laravel/ai` SDK, which is still on `0.x`. New `laravel/ai` minor versions are adopted only after a compatibility review and ship as a minor release here. See [Versioning](#versioning).
+
 ## Requirements
 
 | Requirement      | Version            |
 |------------------|--------------------|
 | PHP              | `^8.4` (8.4, 8.5)  |
 | Laravel          | `12.x \| 13.x`     |
-| `laravel/ai`     | `^0.6.3`           |
+| `laravel/ai`     | `~0.6.3`           |
 
 `laravel/ai 0.6.x` requires `illuminate/* ^12.0|^13.0`, so Laravel 11 is not supported. CI exercises every PHP × Laravel combination above on each push and PR.
 
@@ -39,6 +58,39 @@ composer require jonaspauleta/laravel-ai-moonshot
 ```
 
 The service provider is auto-discovered. There are no migrations or config files to publish — configuration lives in your application's existing `config/ai.php`.
+
+## 60-second quick start
+
+```bash
+composer require jonaspauleta/laravel-ai-moonshot
+```
+
+```env
+# .env
+MOONSHOT_API_KEY=sk-...
+```
+
+```php
+// config/ai.php
+'providers' => [
+    'moonshot' => [
+        'driver' => 'moonshot',
+        'name' => 'moonshot',
+        'key' => env('MOONSHOT_API_KEY'),
+    ],
+],
+```
+
+```php
+use function Laravel\Ai\agent;
+
+$response = agent('You are a helpful assistant.')
+    ->prompt('Explain Moonshot Kimi K2 in one sentence.', provider: 'moonshot');
+
+echo $response->text;
+```
+
+That's the minimum. See [Configuration](#configuration) for per-tier model overrides, custom base URL, and making Moonshot the default provider.
 
 ## Configuration
 
@@ -414,7 +466,7 @@ The Moonshot API does not expose endpoints for the following capabilities at the
 | HTTP 401 `Invalid API key`                                                                     | `MOONSHOT_API_KEY` missing or wrong. Verify with `dd(config('ai.providers.moonshot.key'))` after a `php artisan config:clear`.                            |
 | HTTP 400 `model not found` for `kimi-k2.6` (or any default tier)                               | Moonshot renamed or retired the default. Pin a working model under `config/ai.php` `providers.moonshot.models.text.{default,cheapest,smartest}`.          |
 | `RuntimeException: Provider tools are not supported by Moonshot.`                              | You passed a `ProviderTool` subclass (e.g. web search). Use plain function tools or remove the provider tool.                                             |
-| Document attachment is silently ignored or rejected                                            | Moonshot accepts image attachments only. Extract document text client-side and send as a regular `Message`.                                                |
+| Document attachment via SDK's generic `Document` is silently ignored or rejected               | Generic `Document` attachments are intentionally unsupported. Use `withMoonshotFile()` (or the `MoonshotFiles` service) — this routes through Moonshot's Files API, which performs server-side extraction. See [Document Q&A](#document-qa-pdf-doc-xlsx-). |
 | Structured output returns malformed JSON                                                      | Moonshot does **not** enforce JSON Schema server-side. Validate the response in your app and retry on parse error. See [Caveats](#caveats).               |
 | Streaming hangs on long thinking-mode responses                                               | Default per-request timeout is 60s. Pass `timeout:` to `streamText()` or raise it in the gateway's HTTP client invocation.                                |
 | `Http::fake()` in tests does not intercept the request                                        | Fake key must include the full base URL: `'api.moonshot.ai/v1/chat/completions' => Http::response(...)`. The Laravel HTTP client applies the base URL.    |

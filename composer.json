@@ -1,6 +1,6 @@
 {
     "name": "jonaspauleta/laravel-ai-moonshot",
-    "description": "Moonshot AI (Kimi K2) provider for the Laravel AI SDK. OpenAI-compatible chat completions, streaming, tool calling, and Kimi thinking-mode reasoning.",
+    "description": "Moonshot AI (Kimi K2) provider for the official Laravel AI SDK.",
     "keywords": [
         "laravel",
         "laravel-ai",
